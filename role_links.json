@@ -1,0 +1,30 @@
+[
+  {
+    "ffmax_guild_id": "60740304",
+    "guild_name": "Hawk Eye 01",
+    "roles": [
+      {
+        "role_id": "1146398643390263509",
+        "name": "Hawk Eye ⭐"
+      },
+      {
+        "role_id": "1146811896335454309",
+        "name": "1"
+      }
+    ]
+  },
+  {
+    "ffmax_guild_id": "61131109",
+    "guild_name": "Hawk Eye 02",
+    "roles": [
+      {
+        "role_id": "1146398643390263509",
+        "name": "Hawk Eye ⭐"
+      },
+      {
+        "role_id": "1146811902136168489",
+        "name": "2"
+      }
+    ]
+  }
+]
