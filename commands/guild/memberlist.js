@@ -124,8 +124,36 @@ module.exports = {
                             components: []
                         });
 
+                        // Try to fetch full guild info to get the actual icon/image URL
+                        let guildImage = null;
+                        try {
+                            const baseUrl = process.env.GUILD_API_ENDPOINT.split('?')[0];
+                            const infoResponse = await axios.get(baseUrl, {
+                                params: { action: 'guild_info' },
+                                headers: {
+                                    'Authorization': `Bearer ${process.env.BEARER_TOKEN}`,
+                                    'Accept': 'application/json'
+                                },
+                                timeout: 10000
+                            });
+                            
+                            const items = infoResponse.data?.items || infoResponse.data?.data || infoResponse.data || [];
+                            const fullGuildInfo = (Array.isArray(items) ? items : []).find(g => String(g.ffmax_guild_id || g.guild_id || g.id) === String(selectedGuildId));
+                            
+                            if (fullGuildInfo) {
+                                guildImage = fullGuildInfo.icon || fullGuildInfo.image_url || fullGuildInfo.image || fullGuildInfo.logo || null;
+                            }
+                        } catch (imgError) {
+                            console.error('Failed to fetch guild image:', imgError.message);
+                        }
+
+                        // Fallback to original extraction if fetch failed
+                        if (!guildImage) {
+                            guildImage = selectedGuild.icon || selectedGuild.image_url || selectedGuild.image || selectedGuild.logo || selectedGuild.icon_url || selectedGuild.avatar || null;
+                        }
+
                         // Now fetch and show members for the selected guild
-                        await this.showGuildMembers(interaction, selectedGuildId, guildName, row);
+                        await this.showGuildMembers(interaction, selectedGuildId, guildName, row, guildImage);
                     } catch (error) {
                         console.error('Error in guild selection:', error);
                         const errorEmbed = new EmbedBuilder()
@@ -161,7 +189,7 @@ module.exports = {
         }
     },
 
-    async showGuildMembers(interaction, guildId, guildName, row) {
+    async showGuildMembers(interaction, guildId, guildName, row, guildImage) {
         try {
             console.log(`Fetching members for guild: ${guildName} (${guildId})`);
             // Use the listguilds_endpoint from .env or fallback to the default endpoint
@@ -263,6 +291,7 @@ module.exports = {
                     const rankOrder = {
                         'leader': 0,
                         'acting guild leader': 1,
+                        'agl': 1,
                         'officer': 2,
                         'member': 3
                     };
@@ -270,8 +299,8 @@ module.exports = {
                     const aRole = (a.role || a.rank || '').toLowerCase();
                     const bRole = (b.role || b.rank || '').toLowerCase();
 
-                    const aOrder = rankOrder[aRole] || 3; // Default to member
-                    const bOrder = rankOrder[bRole] || 3; // Default to member
+                    const aOrder = rankOrder[aRole] !== undefined ? rankOrder[aRole] : 3;
+                    const bOrder = rankOrder[bRole] !== undefined ? rankOrder[bRole] : 3;
 
                     if (aOrder === bOrder) {
                         // If same rank, sort by IGN
@@ -293,6 +322,10 @@ module.exports = {
                     .setDescription(`List of Guild Members (Total: ${members.length}):`)
                     .setTimestamp();
 
+                if (guildImage) {
+                    embed.setThumbnail(guildImage);
+                }
+
                 let currentRank = null;
                 let memberList = '';
 
@@ -312,7 +345,7 @@ module.exports = {
                     // Determine the role display name
                     if (role === 'leader') {
                         membersByRole['Leader'].push({ ign, id });
-                    } else if (role === 'acting guild leader') {
+                    } else if (role === 'acting guild leader' || role === 'agl') {
                         membersByRole['Acting Guild Leader'].push({ ign, id });
                     } else if (role === 'officer') {
                         membersByRole['Officer'].push({ ign, id });

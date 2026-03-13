@@ -105,81 +105,75 @@ module.exports = {
                 }
             }
 
-            // Create main embed
+            // Safely create embed
             const embed = new EmbedBuilder()
                 .setColor(userData.is_blacklisted ? '#ff0000' : '#5865F2') // Red if blacklisted, else blurple
-                .setTitle(`👤 ${userData.is_blacklisted ? '🚨 ' : ''}User Profile${userData.is_blacklisted ? ' (BANNED)' : ''}`)
-                .setTimestamp()
+                .setAuthor({
+                    name: `${userData.username || (displayUser ? displayUser.username : (interaction.user.username))}s Free Fire Profile`.slice(0, 256)
+                })
+                .setDescription(`${userData.is_blacklisted ? '🔴' : '🟢'} | ${userData.rank || 'Member'} of ${userData.guild_name || 'No Guild'}`.slice(0, 4096))
                 .setFooter({
-                    text: `Requested by ${interaction.user.username}`,
-                    iconURL: interaction.user.displayAvatarURL({ dynamic: true })
+                    text: `Free Fire Guild Profile • Requested by ${interaction.user.username}`.slice(0, 2048)
                 });
 
-            // Set thumbnail if we have Discord user info
-            if (displayUser) {
-                embed.setThumbnail(displayUser.displayAvatarURL({ dynamic: true, size: 256 }));
-            } else if (userData.avatar_url) {
+            // Format avatar_url if it's a relative path
+            if (userData.avatar_url && userData.avatar_url.startsWith('/')) {
+                userData.avatar_url = `https://guildmanager.hawkeyeofficial.com${userData.avatar_url}`;
+            }
+
+            // Thumbnail Validation
+            const isValidUrl = (urlStr) => {
+                if (!urlStr || typeof urlStr !== 'string') return false;
+                try {
+                    new URL(urlStr);
+                    return urlStr.startsWith('http://') || urlStr.startsWith('https://');
+                } catch {
+                    return false;
+                }
+            };
+
+            if (isValidUrl(userData.avatar_url)) {
                 embed.setThumbnail(userData.avatar_url);
+            } else if (displayUser) {
+                embed.setThumbnail(displayUser.displayAvatarURL({ dynamic: true, size: 256 }));
             }
 
-            // Set the timestamp using the join date if available, otherwise use updated_at
-            if (userData.join_date) {
-                embed.setTimestamp(new Date(userData.join_date));
-            } else if (userData.updated_at) {
-                embed.setTimestamp(new Date(userData.updated_at));
-            } else if (userData.updated) {
-                embed.setTimestamp(new Date(userData.updated));
-            } else {
-                embed.setTimestamp();
-            }
+            // Timestamp Validation
+            const applySafeTimestamp = (dateStr) => {
+                const parsed = new Date(dateStr);
+                if (!isNaN(parsed.getTime())) {
+                    embed.setTimestamp(parsed);
+                    return true;
+                }
+                return false;
+            };
 
-            // Set a simple footer
-            embed.setFooter({ text: 'Profile' });
-
-            // Basic Information Section
-            // Check multiple possible ID field names
-            const userId = userData.id || userData._id || userData.user_id || userData.mongo_id || 'N/A';
-            const basicInfo = [
-                //`🆔 **User ID:** ${userId}`,
-                `🪪 **Discord ID:** ${userData.discord_id || (displayUser ? displayUser.id : 'N/A')}`,
-                //userData.is_blacklisted ? `🚨 **Status:** Banned` : '✅ **Status:** Active'
-            ];
-
-            embed.addFields({
-                name: 'ℹ️ Basic Information',
-                value: basicInfo.join('\n'),
-                inline: false
-            });
+            let timestampApplied = false;
+            if (userData.join_date) timestampApplied = applySafeTimestamp(userData.join_date);
+            if (!timestampApplied && userData.updated_at) timestampApplied = applySafeTimestamp(userData.updated_at);
+            if (!timestampApplied && userData.updated) timestampApplied = applySafeTimestamp(userData.updated);
+            if (!timestampApplied) embed.setTimestamp();
 
             // Game Information Section
-            const gameInfo = [
-                `🎮 **IGN:** ${userData.ign || userData.username || 'Not Set'}`,
-                `🎲 **UID:** ${userData.uid || 'Not Set'}`,
-                `🏆 **Rank:** ${userData.rank || 'Member'}`,
-                `🏰 **Guild:** ${userData.guild_name || 'Not Set'}`,
-                `🆔 **Guild ID:** ${userData.ffmax_guild_id || 'Not Set'}`
-            ];
-
             embed.addFields({
-                name: '🎮 Game Information',
-                value: gameInfo.join('\n'),
+                name: '🎮 Free Fire Max Details',
+                value: `IGN: \`${userData.ign || userData.username || 'Not Set'}\`\nUID: \`${userData.uid || 'Not Set'}\``,
                 inline: false
             });
 
+            // Guild Information Section
+            embed.addFields({
+                name: '🏠 FF Max Guild Information',
+                value: `Guild: \`${userData.guild_name || 'Not Set'}\`\nGuild ID: \`${userData.ffmax_guild_id || 'Not Set'}\`\nRank: \`${userData.rank || 'Member'}\`\nJoined: \`${formatDate(userData.join_date)}\``,
+                inline: false
+            });
 
-            // Timestamps Section - Only show if we have a valid date
-            const updatedDate = userData.updated_at || userData.updated || userData.lastSeen || userData.last_updated || userData.updatedAt || userData.last_updated_at;
-
-            if (updatedDate) {
-                const formattedDate = formatDate(updatedDate);
-                if (formattedDate !== 'Not Available') {
-                    embed.addFields({
-                        name: '⏰ Timestamps',
-                        value: `🔄 **Updated:** ${formattedDate}`,
-                        inline: false
-                    });
-                }
-            }
+            // Discord ID Section
+            embed.addFields({
+                name: '🔗 Discord ID',
+                value: `ID: \`${userData.discord_id || (displayUser ? displayUser.id : 'N/A')}\``,
+                inline: false
+            });
 
             // Add any additional fields from the API
             const excludedFields = [
@@ -314,16 +308,23 @@ module.exports = {
             }
 
         } catch (error) {
-            console.error('Error in profile command:', error);
+            console.error('Error in profile command:', error.message);
 
             let errorMessage = '❌ Failed to fetch profile data. Please try again later.';
+            let errorEmbed = null;
+
             if (error.response) {
                 errorMessage = `❌ API Error: ${error.response.status} - ${error.response.statusText}`;
                 console.error('API Response:', error.response.data);
 
                 // Check if user not found
                 if (error.response.status === 404 || error.response.data?.message?.includes('not found')) {
-                    errorMessage = '❌ User not found. Please check the UID and try again.';
+                    errorMessage = null;
+                    errorEmbed = new EmbedBuilder()
+                        .setColor('#FF0000')
+                        .setTitle('❌ User Not Found')
+                        .setDescription('Please link your profile [🔗 Click Here](https://guildmanager.hawkeyeofficial.com/) to register.\n\n```fix\n🪧 You must be in Hawk Eye Guild\n```')
+                        .setTimestamp();
                 }
             } else if (error.request) {
                 errorMessage = '❌ Could not connect to the server. Please try again later.';
@@ -331,10 +332,11 @@ module.exports = {
                 errorMessage = `❌ Error: ${error.message}`;
             }
 
-            await interaction.editReply({
-                content: errorMessage,
-                ephemeral: true
-            });
+            const replyOptions = {};
+            if (errorMessage) replyOptions.content = errorMessage;
+            if (errorEmbed) replyOptions.embeds = [errorEmbed];
+
+            await interaction.editReply(replyOptions);
         }
     },
 };

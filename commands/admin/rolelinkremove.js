@@ -50,7 +50,8 @@ async function fetchGuilds() {
 
 async function saveRoleLinks(links) {
     try {
-        await fs.writeFile(ROLE_LINKS_PATH, JSON.stringify(links, null, 2), 'utf-8');
+        const jsonString = '[\n' + links.map(link => '  ' + JSON.stringify(link)).join(',\n') + '\n]';
+        await fs.writeFile(ROLE_LINKS_PATH, jsonString, 'utf-8');
         return true;
     } catch (error) {
         console.error('[rolelinkremove] Error saving role links:', error);

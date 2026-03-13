@@ -70,7 +70,8 @@ async function saveRoleLinks(links) {
         await fs.mkdir(dir, { recursive: true });
 
         // Write the file with proper error handling
-        await fs.writeFile(ROLE_LINKS_PATH, JSON.stringify(links, null, 2), 'utf-8');
+        const jsonString = '[\n' + links.map(link => '  ' + JSON.stringify(link)).join(',\n') + '\n]';
+        await fs.writeFile(ROLE_LINKS_PATH, jsonString, 'utf-8');
         console.log(`[rolelink] Successfully saved ${links.length} guild entries to ${ROLE_LINKS_PATH}`);
         return true;
     } catch (error) {

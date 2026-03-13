@@ -65,6 +65,10 @@ module.exports = {
         .addBooleanOption(option =>
             option.setName('all')
                 .setDescription('Check ALL members from the API (Reverse Sync)')
+                .setRequired(false))
+        .addBooleanOption(option =>
+            option.setName('guilds')
+                .setDescription('Select a specific guild to sync')
                 .setRequired(false)),
 
     async execute(interaction) {
@@ -79,6 +83,7 @@ module.exports = {
         }
 
         const checkAll = interaction.options.getBoolean('all');
+        const checkGuilds = interaction.options.getBoolean('guilds');
         const targetUser = interaction.options.getUser('user') || interaction.user;
 
         // Load Role Links once
@@ -93,9 +98,22 @@ module.exports = {
                 const userGuildId = apiUserData.guild_ffmax_id || apiUserData.ffmax_guild_id || apiUserData.guild_id;
                 const userGuildName = apiUserData.guild || apiUserData.guild_name;
 
-                if (!userGuildId) return { status: 'no_guild', user: member.user.username, changes, errors };
+                if (!userGuildId) {
+                    const allManagedRoleIds = new Set();
+                    roleLinks.forEach(guild => guild.roles.forEach(role => allManagedRoleIds.add(role.role_id)));
 
-                // 2. Sync Logic
+                    for (const roleId of allManagedRoleIds) {
+                        if (member.roles.cache.has(roleId)) {
+                            try {
+                                await member.roles.remove(roleId);
+                                changes.push(`Removed: ${roleId}`);
+                            } catch (e) {
+                                errors.push(`Failed to remove role ${roleId}: ${e.message}`);
+                            }
+                        }
+                    }
+                    return { status: 'no_guild', user: member.user.username, changes, errors };
+                }
                 // Support both guildId and ffmax_guild_id keys in role_links.json
                 const targetGuildEntry = roleLinks.find(g => String(g.guildId || g.ffmax_guild_id) === String(userGuildId));
 
@@ -178,6 +196,47 @@ module.exports = {
             } catch (error) {
                 return { status: 'error', user: member.user.username, error: error.message, changes, errors };
             }
+        }
+
+        if (checkGuilds) {
+            // Fetch guilds from API
+            const guilds = await fetchGuilds();
+
+            if (!guilds || guilds.length === 0) {
+                return interaction.editReply({
+                    content: '❌ No guilds found in the API.'
+                });
+            }
+
+            // Create options for select menu
+            const { ActionRowBuilder, StringSelectMenuBuilder } = require('discord.js');
+            const guildOptions = guilds.map(guild => {
+                const effectiveGuildId = guild.ffmax_guild_id || guild.guildId || guild.uid || guild.id;
+                const guildName = guild.guild_name || guild.name || `Guild ${effectiveGuildId}`;
+                return {
+                    label: guildName,
+                    value: String(effectiveGuildId),
+                    description: `ID: ${effectiveGuildId}`,
+                    // Passed via temporary store
+                };
+            });
+
+            const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId('rolecheck_guild_select')
+                .setPlaceholder('Select a guild to sync')
+                .addOptions(guildOptions.slice(0, 25));
+
+            const row = new ActionRowBuilder().addComponents(selectMenu);
+
+            interaction.client.tempRolecheckData = {
+                userId: interaction.user.id,
+                allGuilds: guilds
+            };
+
+            return interaction.editReply({
+                content: 'Select a guild to sync roles for:',
+                components: [row]
+            });
         }
 
         if (checkAll) {
@@ -325,6 +384,10 @@ module.exports = {
                                     guildErrors++;
                                     totalErrors++;
                                 }
+                            } else {
+                                // User defined in the API but not in the Discord server
+                                guildErrors++;
+                                totalErrors++;
                             }
                         } catch (e) {
                             console.error(`[Debug] Error processing member ${discordId}:`, e);
@@ -348,13 +411,45 @@ module.exports = {
                 await interaction.editReply({ embeds: [embed] });
             }
 
+            // Cleanup: find users with managed roles who are NOT in the API at all
+            let removedStaleCount = 0;
+            try {
+                const apiDiscordIds = new Set(apiMembers.map(m => String(m.discord_id || m.discordId)).filter(Boolean));
+                const allManagedRoleIds = new Set();
+                roleLinks.forEach(guild => guild.roles.forEach(role => allManagedRoleIds.add(role.role_id)));
+
+                const usersCleaned = new Set();
+
+                await interaction.guild.members.fetch(); // Ensure cache is populated
+                for (const roleId of allManagedRoleIds) {
+                    const role = interaction.guild.roles.cache.get(roleId);
+                    if (role) {
+                        for (const [memberId, member] of role.members) {
+                            if (!apiDiscordIds.has(String(memberId))) {
+                                try {
+                                    await member.roles.remove(roleId);
+                                    usersCleaned.add(memberId);
+                                    totalUpdated++;
+                                } catch (e) {
+                                    totalErrors++;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                removedStaleCount = usersCleaned.size;
+                
+                if (removedStaleCount > 0) {
+                    guildResults.push(`\n🧹 **Cleanup**: Removed stale roles from ${removedStaleCount} users not in any API guild.`);
+                }
+            } catch (cleanupErr) {
+                console.error('Error during cleanup:', cleanupErr);
+            }
+
             embed.setTitle('✅ Reverse Role Sync Complete')
                 .setDescription(`Processed ${apiMembers.length} API members.\nTotal Updated: ${totalUpdated}\nTotal Errors: ${totalErrors}\n\n${guildResults.join('\n')}`)
                 .setColor(totalErrors > 0 ? 0xFFA500 : 0x00FF00); // Orange if errors, Green if clean
-
-            if (totalErrors > 0) {
-                embed.setFooter({ text: 'Check console for detailed error logs (e.g. Unknown Role or Permissions)' });
-            }
 
             await interaction.editReply({ embeds: [embed] });
 
@@ -390,7 +485,17 @@ module.exports = {
                 }
 
                 if (result.status === 'no_guild') {
-                    return interaction.editReply({ content: `ℹ️ User **${targetUser.username}** is not in any guild (according to API).` });
+                    if (result.changes && result.changes.length > 0) {
+                        const embed = new EmbedBuilder()
+                            .setTitle(`Role Sync: ${targetUser.username}`)
+                            .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
+                            .setColor(0x00FF00)
+                            .setDescription('ℹ️ User is not in any API guild. Stale roles were removed.')
+                            .addFields({ name: '🗑️ Roles Removed', value: result.changes.map(c => c.replace('Removed: ', '')).map(id => `<@&${id}>`).join('\n') });
+                        return interaction.editReply({ content: null, embeds: [embed] });
+                    } else {
+                        return interaction.editReply({ content: `ℹ️ User **${targetUser.username}** is not in any guild, and has no managed guild roles.` });
+                    }
                 }
 
                 // Construct Response based on result
@@ -453,18 +558,295 @@ module.exports = {
 
             } catch (error) {
                 console.error('Error in rolecheck command:', error);
-                let errorMessage = '❌ An error occurred while checking roles.';
+                
+                if (error.response && error.response.status === 404) {
+                    // Start of 404 cleanup logic
+                    let removedRolesCount = 0;
+                    let removedRolesList = [];
+                    
+                    try {
+                        const allManagedRoleIds = new Set();
+                        roleLinks.forEach(guild => guild.roles.forEach(role => allManagedRoleIds.add(role.role_id)));
 
-                if (error.response) {
-                    if (error.response.status === 404) {
-                        errorMessage = '❌ User profile not found in API.';
-                    } else {
-                        errorMessage = `❌ API Error: ${error.response.status}`;
+                        for (const roleId of allManagedRoleIds) {
+                            if (member.roles.cache.has(roleId)) {
+                                try {
+                                    await member.roles.remove(roleId);
+                                    removedRolesCount++;
+                                    removedRolesList.push(roleId);
+                                } catch (e) {
+                                    console.error(`Failed to remove role ${roleId} during 404 cleanup:`, e);
+                                }
+                            }
+                        }
+
+                        if (removedRolesCount > 0) {
+                            const embed = new EmbedBuilder()
+                                .setTitle(`Role Sync: ${targetUser.username}`)
+                                .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
+                                .setColor(0xFFA500)
+                                .setDescription('❌ User profile not found in API.')
+                                .addFields({ 
+                                    name: '🧹 Stale Roles Removed', 
+                                    value: removedRolesList.map(id => `<@&${id}>`).join('\n') 
+                                });
+                            return interaction.editReply({ content: null, embeds: [embed] });
+                        }
+                    } catch (cleanupErr) {
+                         console.error('Error executing 404 cleanup:', cleanupErr);
                     }
+                    
+                    // Fallback to simple error if no roles were removed or cleanup failed
+                    return interaction.editReply({ content: '❌ User profile not found in API.' });
                 }
 
+                // Generic error handler
+                let errorMessage = '❌ An error occurred while checking roles.';
+                if (error.response) {
+                    errorMessage = `❌ API Error: ${error.response.status}`;
+                }
                 await interaction.editReply({ content: errorMessage });
             }
         }
+    },
+
+    // Handle the select menu interaction
+    async handleGuildSelect(interaction) {
+        if (interaction.customId !== 'rolecheck_guild_select') return false;
+
+        await interaction.deferUpdate();
+
+        const { userId, allGuilds } = interaction.client.tempRolecheckData || {};
+
+        if (interaction.user.id !== userId) {
+            await interaction.followUp({
+                content: '❌ Only the command initiator can select a guild.',
+                ephemeral: true
+            });
+            return true;
+        }
+
+        const selectedId = interaction.values[0];
+        const selectedGuild = allGuilds.find(g => {
+            const effId = g.ffmax_guild_id || g.guildId || g.uid || g.id;
+            return String(effId) === selectedId;
+        });
+
+        const guildName = selectedGuild ? (selectedGuild.guild_name || selectedGuild.name) : `Guild ID: ${selectedId}`;
+
+        await interaction.editReply({ 
+            content: `🔄 Fetching members for **${guildName}** from API... Please wait.`, 
+            components: [] 
+        });
+
+        let apiMembers = [];
+        try {
+            let apiUrl = process.env.listguilds_endpoint;
+            if (apiUrl.includes('limit=')) {
+                apiUrl = apiUrl.replace(/limit=\d+/, 'limit=10000');
+            } else {
+                apiUrl += '&limit=10000';
+            }
+
+            const response = await axios.get(apiUrl, {
+                headers: {
+                    'Authorization': `Bearer ${process.env.BEARER_TOKEN}`,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                timeout: 30000
+            });
+
+            if (Array.isArray(response.data)) {
+                apiMembers = response.data;
+            } else if (response.data.data && Array.isArray(response.data.data)) {
+                apiMembers = response.data.data;
+            } else if (response.data.items && Array.isArray(response.data.items)) {
+                apiMembers = response.data.items;
+            } else {
+                return interaction.editReply({ content: '❌ Unexpected API response format.' });
+            }
+        } catch (error) {
+            return interaction.editReply({ content: `❌ Failed to fetch members: ${error.message}` });
+        }
+
+        // Filter API members to only include those in the selected guild
+        const guildMembers = apiMembers.filter(m => {
+            const mGuildId = m.guild_ffmax_id || m.ffmax_guild_id || m.guild_id;
+            const mGuildName = m.guild || m.guild_name;
+            return String(mGuildId) === selectedId || (mGuildName === guildName && !mGuildId);
+        });
+
+        if (guildMembers.length === 0) {
+            return interaction.editReply({ content: `ℹ️ No members found in **${guildName}** via API.` });
+        }
+
+        const roleLinks = await getRoleLinks();
+        const isLinked = roleLinks.some(g => String(g.guildId || g.ffmax_guild_id) === String(selectedId));
+
+        if (!isLinked) {
+            return interaction.editReply({ content: `⚠️ **${guildName}** is not linked to any roles. Use \`/rolelink\` first.` });
+        }
+
+        const embed = new EmbedBuilder()
+            .setTitle(`🔄 Role Sync: ${guildName}`)
+            .setDescription(`Processing ${guildMembers.length} members...`)
+            .setColor(0xFFFF00);
+
+        await interaction.editReply({ content: null, embeds: [embed] });
+
+        let guildUpdated = 0;
+        let guildErrors = 0;
+
+        // Sync Logic from execute
+        const syncMemberInner = async (member, apiUserData) => {
+            let changes = [];
+            let errors = [];
+            try {
+                const userGuildId = apiUserData.guild_ffmax_id || apiUserData.ffmax_guild_id || apiUserData.guild_id;
+                if (!userGuildId) return { changes, errors };
+
+                const targetGuildEntry = roleLinks.find(g => String(g.guildId || g.ffmax_guild_id) === String(userGuildId));
+                
+                const shouldHaveRoleIds = new Set();
+                if (targetGuildEntry) {
+                    targetGuildEntry.roles.forEach(r => shouldHaveRoleIds.add(r.role_id));
+                }
+
+                const allManagedRoleIds = new Set();
+                
+                // Only manage the roles explicitly linked to the target guild during specific guild checks
+                if (targetGuildEntry) {
+                    targetGuildEntry.roles.forEach(role => allManagedRoleIds.add(role.role_id));
+                }
+
+                for (const managedRoleId of allManagedRoleIds) {
+                    const hasRole = member.roles.cache.has(managedRoleId);
+                    const shouldHave = shouldHaveRoleIds.has(managedRoleId);
+
+                    if (shouldHave && !hasRole) {
+                        try {
+                            await member.roles.add(managedRoleId);
+                            changes.push(managedRoleId);
+                        } catch (e) {
+                            errors.push(`Role ${managedRoleId}: ${e.message}`);
+                        }
+                    } else if (!shouldHave && hasRole) {
+                        try {
+                            await member.roles.remove(managedRoleId);
+                            changes.push(managedRoleId);
+                        } catch (e) {
+                            errors.push(`Role ${managedRoleId}: ${e.message}`);
+                        }
+                    }
+                }
+                return { changes, errors };
+            } catch (error) {
+                return { changes, errors: [error.message] };
+            }
+        };
+
+        let unsyncedMembers = [];
+
+        for (const apiMem of guildMembers) {
+            let discordId = apiMem.discord_id || apiMem.discordId;
+            const inGameName = apiMem.ign || apiMem.username || apiMem.game_name || apiMem.name || 'Unknown';
+            
+            if (!discordId) {
+                guildErrors++;
+                unsyncedMembers.push({ name: inGameName, reason: "No Discord ID linked" });
+                continue;
+            }
+
+            try {
+                const member = await interaction.guild.members.fetch(discordId).catch(() => null);
+                if (member) {
+                    const result = await syncMemberInner(member, apiMem);
+                    if (result.changes && result.changes.length > 0) guildUpdated++;
+                    if (result.errors && result.errors.length > 0) {
+                        guildErrors++;
+                        unsyncedMembers.push({ name: inGameName, id: discordId, reason: "Error applying roles" });
+                    }
+                } else {
+                    guildErrors++;
+                    unsyncedMembers.push({ name: inGameName, id: discordId, reason: "User not in server" });
+                }
+            } catch (e) {
+                guildErrors++;
+                unsyncedMembers.push({ name: inGameName, id: discordId, reason: "Error fetching member" });
+            }
+            await new Promise(resolve => setTimeout(resolve, 200));
+        }
+
+        // Cleanup for specific guild: remove role from anyone who has it but isn't in guildMembers
+        try {
+            const validGuildMemberDiscordIds = new Set(guildMembers.map(m => String(m.discord_id || m.discordId)).filter(Boolean));
+            const allApiDiscordIds = new Set(apiMembers.map(m => String(m.discord_id || m.discordId)).filter(Boolean));
+            
+            const targetGuildEntry = roleLinks.find(g => String(g.guildId || g.ffmax_guild_id) === String(selectedId));
+
+            // Precompute role sharing to prevent removing shared roles like "Hawk Eye ⭐" from members of other guilds
+            const roleUsageCount = {};
+            roleLinks.forEach(g => {
+                g.roles.forEach(r => {
+                    roleUsageCount[r.role_id] = (roleUsageCount[r.role_id] || 0) + 1;
+                });
+            });
+            
+            const usersCleanedInGuild = new Set();
+            
+            if (targetGuildEntry) {
+                await interaction.guild.members.fetch();
+                for (const roleObj of targetGuildEntry.roles) {
+                    const roleId = roleObj.role_id;
+                    const isShared = roleUsageCount[roleId] > 1;
+                    const role = interaction.guild.roles.cache.get(roleId);
+                    
+                    if (role) {
+                        for (const [memberId, member] of role.members) {
+                            // If shared role, only remove if they are not in ANY guild
+                            // If unique role, remove if they are not in THIS guild
+                            const shouldRemove = isShared ? !allApiDiscordIds.has(String(memberId)) : !validGuildMemberDiscordIds.has(String(memberId));
+                            
+                            if (shouldRemove) {
+                                try {
+                                    await member.roles.remove(roleId);
+                                    guildUpdated++;
+                                    if (!usersCleanedInGuild.has(memberId)) {
+                                        unsyncedMembers.push({ name: member.user.username, id: memberId, reason: "Stale role removed (left guild)" });
+                                        usersCleanedInGuild.add(memberId);
+                                    }
+                                } catch (e) {
+                                    guildErrors++;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (cleanupErr) {
+            console.error('Error during specific guild cleanup:', cleanupErr);
+        }
+
+        embed.setTitle(`✅ Role Sync Complete: ${guildName}`)
+            .setDescription(`Total Members: ${guildMembers.length}\nSuccessfully Updated: ${guildUpdated}\nErrors Encountered: ${guildErrors}`)
+            .setColor(guildErrors > 0 ? 0xFFA500 : 0x00FF00);
+
+        if (unsyncedMembers.length > 0) {
+            // chunk the unsynced members if the list is too long for an embed field (max 1024 chars)
+            let unsyncedText = unsyncedMembers.map(m => `**${m.name}** ${m.id ? `(<@${m.id}>)` : ''} - *${m.reason}*`).join('\n');
+            if (unsyncedText.length > 1024) {
+                unsyncedText = unsyncedText.substring(0, 1000) + '... (and more)';
+            }
+            embed.addFields({ name: '⚠️ Unsynced Members', value: unsyncedText });
+        }
+
+        if (guildErrors > 0) embed.setFooter({ text: 'Check console for detailed errors.' });
+
+        await interaction.editReply({ embeds: [embed] });
+        
+        // Clean up
+        delete interaction.client.tempRolecheckData;
+        return true;
     }
 };

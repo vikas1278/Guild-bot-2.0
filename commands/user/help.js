@@ -1,51 +1,66 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const fs = require('fs').promises;
+const path = require('path');
+
+async function isBotCommander(userId) {
+    try {
+        const data = await fs.readFile(path.join(__dirname, '../../commanderdb.json'), 'utf-8');
+        const { commanders } = JSON.parse(data);
+        return commanders.includes(userId) || userId === process.env.BOT_OWNER;
+    } catch {
+        return userId === process.env.BOT_OWNER;
+    }
+}
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('help')
-        .setDescription('List all available commands'),
+        .setDescription('List all available bot commands'),
 
     async execute(interaction) {
-        const commands = interaction.client.commands;
-        const categories = {};
-
-        // Group commands by category
-        commands.forEach(command => {
-            const category = command.category || 'Uncategorized';
-            // Capitalize category name
-            const formattedCategory = category.charAt(0).toUpperCase() + category.slice(1);
-
-            if (!categories[formattedCategory]) {
-                categories[formattedCategory] = [];
-            }
-            categories[formattedCategory].push(command);
-        });
+        const isCommander = await isBotCommander(interaction.user.id);
 
         const embed = new EmbedBuilder()
-            .setTitle('📚 Bot Commands')
+            .setTitle('📚 Hawk Eye Bot — Commands')
             .setColor(0x5865F2)
-            .setDescription('Here is a list of all available commands:')
+            .setFooter({ text: 'Hawk Eye Official | Developed by Vikas Singh' })
             .setTimestamp();
 
-        // Sort categories alphabetically
-        const sortedCategories = Object.keys(categories).sort();
-
-        for (const category of sortedCategories) {
-            // Sort commands alphabetically within category
-            const categoryCommands = categories[category].sort((a, b) =>
-                a.data.name.localeCompare(b.data.name)
-            );
-
-            const commandList = categoryCommands.map(cmd => {
-                return `\`/${cmd.data.name}\` - ${cmd.data.description}`;
-            }).join('\n');
-
+        if (isCommander) {
             embed.addFields({
-                name: `${category} Commands`,
-                value: commandList || 'No commands found.',
+                name: '🛡️ Admin',
+                value: [
+                    '`/autorolesync` — Manage automated role & rank sync (run/start/stop/status)',
+                    '`/rolecheck` — Sync guild roles for a user or all members',
+                    '`/rankcheck` — Sync rank roles for a user or all members',
+                    '`/rolelink` — Link Discord roles to a guild',
+                    '`/rolelinkremove` — Remove a linked role from a guild',
+                    '`/rolelist` — View all role-guild links',
+                    '`/ranklink` — Link a Discord role to an in-game rank',
+                    '`/botcommander` — Manage bot commander access',
+                ].join('\n'),
                 inline: false
             });
         }
+
+        embed.addFields({
+            name: '🏰 Guild',
+            value: [
+                '`/guilds` — List all Hawk Eye guilds with member counts',
+                '`/memberlist` — View members of a specific guild',
+                '`/banlist` — View the guild ban list',
+            ].join('\n'),
+            inline: false
+        });
+
+        embed.addFields({
+            name: '👤 User',
+            value: [
+                '`/profile [@user]` — View a member\'s in-game profile',
+                '`/help` — Show this command list',
+            ].join('\n'),
+            inline: false
+        });
 
         await interaction.reply({ embeds: [embed] });
     },

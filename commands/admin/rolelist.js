@@ -34,7 +34,7 @@ module.exports = {
                 .setRequired(false)),
 
     async execute(interaction) {
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply();
 
         // Check permissions
         const isCommander = await isBotCommander(interaction.user.id);
@@ -55,7 +55,7 @@ module.exports = {
 
         if (targetGuildId) {
             // Show roles for specific guild
-            const guildEntry = roleLinks.find(g => g.guildId === targetGuildId);
+            const guildEntry = roleLinks.find(g => (g.ffmax_guild_id || g.guildId) === targetGuildId);
 
             if (!guildEntry) {
                 return interaction.editReply({

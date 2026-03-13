@@ -96,6 +96,12 @@ client.once(Events.ClientReady, c => {
             );
 
             console.log(`✅ Successfully reloaded ${data.length} application (/) commands.`);
+
+            // Initialize background tasks
+            const autoRoleSyncCmd = client.commands.get('autorolesync');
+            if (autoRoleSyncCmd && typeof autoRoleSyncCmd.init === 'function') {
+                autoRoleSyncCmd.init(client);
+            }
         } catch (error) {
             console.error('❌ Failed to refresh application (/) commands:', error);
         }
@@ -140,6 +146,18 @@ client.on(Events.InteractionCreate, async interaction => {
                     }
                 }
             }
+        } else if (interaction.customId === 'ranklink_guild_select') {
+            const command = interaction.client.commands.get('ranklink');
+            if (command && command.handleGuildSelect) {
+                try {
+                    await command.handleGuildSelect(interaction);
+                } catch (error) {
+                    console.error('Error handling ranklink guild select:', error);
+                    if (!interaction.replied && !interaction.deferred) {
+                        await interaction.reply({ content: 'An error occurred while processing your selection.', ephemeral: true });
+                    }
+                }
+            }
         } else if (interaction.customId === 'bind_guild_select') {
             const command = interaction.client.commands.get('bind');
             if (command && command.handleGuildSelect) {
@@ -159,6 +177,18 @@ client.on(Events.InteractionCreate, async interaction => {
                     await command.handleGuildSelect(interaction);
                 } catch (error) {
                     console.error('Error handling rolelinkremove select:', error);
+                    if (!interaction.replied && !interaction.deferred) {
+                        await interaction.reply({ content: 'An error occurred while processing your selection.', ephemeral: true });
+                    }
+                }
+            }
+        } else if (interaction.customId === 'rolecheck_guild_select') {
+            const command = interaction.client.commands.get('rolecheck');
+            if (command && command.handleGuildSelect) {
+                try {
+                    await command.handleGuildSelect(interaction);
+                } catch (error) {
+                    console.error('Error handling rolecheck guild select:', error);
                     if (!interaction.replied && !interaction.deferred) {
                         await interaction.reply({ content: 'An error occurred while processing your selection.', ephemeral: true });
                     }
