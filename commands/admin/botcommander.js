@@ -32,8 +32,8 @@ module.exports = {
                 .setDescription('List all bot commanders')),
 
     async execute(interaction) {
-        // Check if the user is the bot owner
-        if (interaction.user.id !== process.env.BOT_OWNER) {
+        const owners = (process.env.BOT_OWNER || '').split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
+        if (!owners.includes(interaction.user.id)) {
             return interaction.reply({ 
                 content: '❌ This command can only be used by the bot owner.', 
                 ephemeral: true 

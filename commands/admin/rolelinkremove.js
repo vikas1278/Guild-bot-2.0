@@ -63,9 +63,11 @@ async function isBotCommander(userId) {
     try {
         const data = await fs.readFile(path.join(__dirname, '../../commanderdb.json'), 'utf-8');
         const { commanders } = JSON.parse(data);
-        return commanders.includes(userId) || userId === process.env.BOT_OWNER;
+        const owners = (process.env.BOT_OWNER || '').split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
+        return commanders.includes(userId) || owners.includes(userId);
     } catch (error) {
-        return false;
+        const owners = (process.env.BOT_OWNER || '').split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
+        return owners.includes(userId);
     }
 }
 
