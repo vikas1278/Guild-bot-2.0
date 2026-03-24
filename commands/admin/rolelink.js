@@ -84,11 +84,10 @@ async function isBotCommander(userId) {
     try {
         const data = await fs.readFile(path.join(__dirname, '../../commanderdb.json'), 'utf-8');
         const { commanders } = JSON.parse(data);
-        const owners = (process.env.BOT_OWNER || '').split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
+        const owners = (process.env.BOT_OWNER || '').split(',').map(id => id.trim()).filter(Boolean);
         return commanders.includes(userId) || owners.includes(userId);
     } catch (error) {
-        const owners = (process.env.BOT_OWNER || '').split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
-        return owners.includes(userId);
+        return false;
     }
 }
 
@@ -108,7 +107,7 @@ module.exports = {
 
     async execute(interaction) {
         // Defer the reply to give us more time
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: 64 });
 
         // Check permissions
         const isCommander = await isBotCommander(interaction.user.id);
@@ -213,7 +212,7 @@ module.exports = {
         if (interaction.user.id !== userId) {
             await interaction.followUp({
                 content: '❌ Only the command initiator can select a guild.',
-                ephemeral: true
+                flags: 64
             });
             return true;
         }
@@ -231,7 +230,7 @@ module.exports = {
             if (!guild) {
                 await interaction.followUp({
                     content: '❌ Guild not found in the API.',
-                    ephemeral: true
+                    flags: 64
                 });
                 return true;
             }
@@ -260,7 +259,7 @@ module.exports = {
             if (newRoles.length === 0) {
                 await interaction.followUp({
                     content: 'All provided roles are already linked to this guild.',
-                    ephemeral: true
+                    flags: 64
                 });
                 return true;
             }
@@ -280,7 +279,7 @@ module.exports = {
                 console.error('Failed to save role links:', saveError);
                 await interaction.followUp({
                     content: '❌ Failed to save role links. Please try again or contact an administrator.',
-                    ephemeral: true
+                    flags: 64
                 });
                 return true;
             }
@@ -309,7 +308,7 @@ module.exports = {
                 console.error('Failed to edit interaction:', editError);
                 await interaction.followUp({
                     content: '✅ Role link successful! However, there was an issue updating the message.',
-                    ephemeral: true
+                    flags: 64
                 });
             }
 
@@ -318,7 +317,7 @@ module.exports = {
             try {
                 await interaction.followUp({
                     content: '❌ An error occurred while processing your request.',
-                    ephemeral: true
+                    flags: 64
                 });
             } catch (e) {
                 console.error('Failed to send error message:', e);

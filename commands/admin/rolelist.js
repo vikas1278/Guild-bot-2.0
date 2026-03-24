@@ -17,11 +17,10 @@ async function isBotCommander(userId) {
     try {
         const data = await fs.readFile(path.join(__dirname, '../../commanderdb.json'), 'utf-8');
         const { commanders } = JSON.parse(data);
-        const owners = (process.env.BOT_OWNER || '').split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
+        const owners = (process.env.BOT_OWNER || '').split(',').map(id => id.trim()).filter(Boolean);
         return commanders.includes(userId) || owners.includes(userId);
     } catch (error) {
-        const owners = (process.env.BOT_OWNER || '').split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
-        return owners.includes(userId);
+        return false;
     }
 }
 

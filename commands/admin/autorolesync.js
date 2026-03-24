@@ -27,10 +27,10 @@ async function isBotCommander(userId) {
     try {
         const data = await fs.readFile(path.join(__dirname, '../../commanderdb.json'), 'utf-8');
         const { commanders } = JSON.parse(data);
-        const owners = (process.env.BOT_OWNER || '').split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
+        const owners = (process.env.BOT_OWNER || '').split(',').map(id => id.trim()).filter(Boolean);
         return commanders.includes(userId) || owners.includes(userId);
     } catch (error) {
-        const owners = (process.env.BOT_OWNER || '').split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
+        const owners = (process.env.BOT_OWNER || '').split(',').map(id => id.trim()).filter(Boolean);
         return owners.includes(userId);
     }
 }
@@ -59,6 +59,12 @@ async function performSync(client, guildId, logChannelId = null) {
     const lastSyncTime = new Date(syncState.last_sync_time || "2000-01-01T00:00:00Z");
     const guild = client.guilds.cache.get(guildId);
     if (!guild) return { error: `Guild ${guildId} not found in cache.` };
+
+    // Helper to resolve role name
+    const resolveRoleName = (roleId) => {
+        const r = guild.roles.cache.get(roleId);
+        return r ? r.name : `<@&${roleId}>`;
+    };
 
     try {
         const response = await axios.get(process.env.autosync_endpoint, {
@@ -100,12 +106,6 @@ async function performSync(client, guildId, logChannelId = null) {
                         continue;
                     }
 
-                    // Helper to resolve role name
-                    const resolveRoleName = (roleId) => {
-                        const r = guild.roles.cache.get(roleId);
-                        return r ? r.name : `<@&${roleId}>`;
-                    };
-
                     // --- Role Sync Logic ---
                     const userGuildId = apiMem.guild_ffmax_id || apiMem.ffmax_guild_id || apiMem.guild_id;
                     const targetGuildEntry = roleLinks.find(g => String(g.guildId || g.ffmax_guild_id) === String(userGuildId));
@@ -130,10 +130,10 @@ async function performSync(client, guildId, logChannelId = null) {
                     // --- Rank Sync Logic ---
                     const userRank = (apiMem.rank || apiMem.ign_rank || '').trim();
                     const expectedRankLink = rankLinks.find(link =>
-                        link.rank_name.toLowerCase() === userRank.toLowerCase()
+                        link.rank_name.toLowerCase() === userRank.toLowerCase() && link.rank_name !== 'blacklist'
                     );
                     const expectedRankRoleId = expectedRankLink ? expectedRankLink.role_id : null;
-                    const allManagedRankRoles = new Set(rankLinks.map(l => l.role_id));
+                    const allManagedRankRoles = new Set(rankLinks.filter(l => l.rank_name !== 'blacklist').map(l => l.role_id));
 
                     for (const roleId of allManagedRankRoles) {
                         const has = member.roles.cache.has(roleId);
@@ -149,28 +149,124 @@ async function performSync(client, guildId, logChannelId = null) {
                         }
                     }
 
+                    // --- Blacklist Sync Logic ---
+                    const isBlacklisted = apiMem.is_blacklisted == "1" || apiMem.is_blacklisted === true;
+                    const blacklistRoles = rankLinks.filter(r => r.rank_name === 'blacklist').map(r => r.role_id);
+                    
+                    if (isBlacklisted && blacklistRoles.length > 0) {
+                        let needsBlacklistUpdate = false;
+                        for (const bRoleId of blacklistRoles) {
+                            if (!member.roles.cache.has(bRoleId)) {
+                                needsBlacklistUpdate = true;
+                                break;
+                            }
+                        }
+
+                        if (needsBlacklistUpdate) {
+                            const ok = await member.roles.add(blacklistRoles, 'Automated Blacklist Sync').then(() => true).catch(() => false);
+                            if (ok) {
+                                rolesAdded.push(...blacklistRoles.map(id => `${resolveRoleName(id)} *(blacklist)*`));
+                            } else {
+                                memberErrors++;
+                                totalErrors++;
+                            }
+                        }
+                    } else if (!isBlacklisted && blacklistRoles.length > 0) {
+                        let hasBlacklistRoles = false;
+                        const currentRolesToRemove = [];
+                        for (const bRoleId of blacklistRoles) {
+                            if (member.roles.cache.has(bRoleId)) {
+                                hasBlacklistRoles = true;
+                                currentRolesToRemove.push(bRoleId);
+                            }
+                        }
+
+                        if (hasBlacklistRoles) {
+                            const ok = await member.roles.remove(currentRolesToRemove, 'Automated Blacklist Sync (Unblacklisted)').then(() => true).catch(() => false);
+                            if (ok) {
+                                rolesRemoved.push(...currentRolesToRemove.map(id => `${resolveRoleName(id)} *(unblacklisted)*`));
+                            } else {
+                                memberErrors++;
+                                totalErrors++;
+                            }
+                        }
+                    }
+
                     const changed = rolesAdded.length > 0 || rolesRemoved.length > 0;
                     if (changed) totalUpdated++;
                     memberLogs.push({ ign, discordId, rolesAdded, rolesRemoved, errors: memberErrors });
 
-                } catch (e) { totalErrors++; memberLogs.push({ ign, discordId, rolesAdded, rolesRemoved, errors: 1 }); }
+                } catch (e) {
+                    console.error(`[AutoRoleSync] Error processing member ${discordId}:`, e.message);
+                    totalErrors++;
+                    memberLogs.push({ ign, discordId, rolesAdded: [], rolesRemoved: [], errors: 1 });
+                }
                 await new Promise(r => setTimeout(r, 200));
             }
-
             syncState.last_sync_time = latestSeenUpdate.toISOString();
-            syncState.last_run = new Date().toISOString();
-            await saveJsonData(SYNC_STATE_PATH, syncState);
-        } else {
-            syncState.last_run = new Date().toISOString();
-            await saveJsonData(SYNC_STATE_PATH, syncState);
         }
 
-        if (logChannelId && updatedMembers.length > 0) {
+        syncState.last_run = new Date().toISOString();
+        await saveJsonData(SYNC_STATE_PATH, syncState);
+
+        // --- Full Blacklist Sync (Ensures removals for those not in the "recent updates" list) ---
+        const blacklistRoles = rankLinks.filter(r => r.rank_name === 'blacklist').map(r => r.role_id);
+        const banUrl = process.env.banlistapi_endpoint;
+        if (blacklistRoles.length > 0 && banUrl) {
+            try {
+                const bResponse = await axios.get(banUrl, {
+                    headers: {
+                        'Authorization': `Bearer ${process.env.BEARER_TOKEN}`,
+                        'Accept': 'application/json'
+                    },
+                    timeout: 20000
+                });
+
+                let bannedData = bResponse.data.data?.rows || bResponse.data.items || bResponse.data || [];
+                const bannedIds = new Set(bannedData.map(b => b.discord_id || b.discordId).filter(id => id && id !== 'N/A'));
+
+                for (const bRoleId of blacklistRoles) {
+                    const role = await guild.roles.fetch(bRoleId).catch(() => null);
+                    if (!role) continue;
+
+                    // Ensure members are fetched for this role
+                    await guild.members.fetch();
+                    for (const [mId, m] of role.members) {
+                        if (!bannedIds.has(mId)) {
+                            const ok = await m.roles.remove(bRoleId, 'Automated Sync (Unblacklisted)').then(() => true).catch(() => false);
+                            if (ok) {
+                                totalUpdated++;
+                                const logEntry = memberLogs.find(l => l.discordId === mId);
+                                if (logEntry) {
+                                    if (!logEntry.rolesRemoved.includes(`${resolveRoleName(bRoleId)} *(unblacklisted)*`)) {
+                                        logEntry.rolesRemoved.push(`${resolveRoleName(bRoleId)} *(unblacklisted)*`);
+                                    }
+                                } else {
+                                    memberLogs.push({ 
+                                        ign: m.user.username, 
+                                        discordId: mId, 
+                                        rolesAdded: [], 
+                                        rolesRemoved: [`${resolveRoleName(bRoleId)} *(unblacklisted)*`], 
+                                        errors: 0 
+                                    });
+                                }
+                            } else {
+                                totalErrors++;
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error('[AutoRoleSync] Full Blacklist Sync Error:', err.message);
+            }
+        }
+
+        if (logChannelId && (updatedMembers.length > 0 || memberLogs.length > 0)) {
             const logChannel = await client.channels.fetch(logChannelId).catch(() => null);
             if (logChannel) {
                 const logEmbed = new EmbedBuilder()
-                    .setTitle('🕒 Automated Role Sync Log')
-                    .setDescription(`Sync completed for **${updatedMembers.length}** member(s).`)
+                    .setTitle('🕒 Automated Role & Blacklist Sync Log')
+                    .setDescription(`Sync completed at <t:${Math.floor(Date.now() / 1000)}:f>`)
                     .addFields(
                         { name: '👥 Members Processed', value: `${updatedMembers.length}`, inline: true },
                         { name: '✅ Updated', value: `${totalUpdated}`, inline: true },
@@ -227,7 +323,8 @@ module.exports = {
         .addSubcommand(sub => sub.setName('set-channel').setDescription('Set the channel for sync logs')
             .addChannelOption(opt => opt.setName('channel').setDescription('The channel to send logs to').setRequired(true).addChannelTypes(ChannelType.GuildText)))
         .addSubcommand(sub => sub.setName('start').setDescription('Enable automated sync with a custom interval')
-            .addStringOption(opt => opt.setName('interval').setDescription('Interval (e.g. 30m, 1h, 1d)').setRequired(true))),
+            .addStringOption(opt => opt.setName('interval').setDescription('Interval (e.g. 30m, 1h, 1d)').setRequired(true)))
+        .addSubcommand(sub => sub.setName('clear').setDescription('Stop sync and clear ALL autorolesync settings from storage')),
 
     async execute(interaction) {
         await interaction.deferReply();
@@ -242,8 +339,8 @@ module.exports = {
         if (subcommand === 'run') {
             const res = await performSync(interaction.client, interaction.guildId);
             if (res.error) return interaction.editReply(`❌ Error: ${res.error}`);
-            if (res.count === 0) return interaction.editReply('ℹ️ No new updates found in the API.');
-            return interaction.editReply(`✅ Sync complete. Processed ${res.count} members. Updated ${res.updated} users. Errors: ${res.errors}`);
+            if (res.count === 0 && res.updated === 0) return interaction.editReply('ℹ️ No updates found.');
+            return interaction.editReply(`✅ Sync complete. Updated ${res.updated} users. Errors: ${res.errors}`);
         }
 
         if (subcommand === 'set-channel') {
@@ -273,6 +370,13 @@ module.exports = {
             await saveJsonData(SYNC_STATE_PATH, state);
             if (syncIntervalId) { clearInterval(syncIntervalId); syncIntervalId = null; }
             return interaction.editReply('✅ Automated sync has been disabled.');
+        }
+
+        if (subcommand === 'clear') {
+            if (syncIntervalId) { clearInterval(syncIntervalId); syncIntervalId = null; }
+            const emptyState = {};
+            await saveJsonData(SYNC_STATE_PATH, emptyState);
+            return interaction.editReply('🗑️ AutoRoleSync fully cleared. All settings (interval, log channel, sync times) have been reset.');
         }
 
         if (subcommand === 'status') {

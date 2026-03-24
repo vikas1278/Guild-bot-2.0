@@ -19,11 +19,10 @@ async function isBotCommander(userId) {
     try {
         const data = await fs.readFile(path.join(__dirname, '../../commanderdb.json'), 'utf-8');
         const { commanders } = JSON.parse(data);
-        const owners = (process.env.BOT_OWNER || '').split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
+        const owners = (process.env.BOT_OWNER || '').split(',').map(id => id.trim()).filter(Boolean);
         return commanders.includes(userId) || owners.includes(userId);
     } catch (error) {
-        const owners = (process.env.BOT_OWNER || '').split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
-        return owners.includes(userId);
+        return false;
     }
 }
 
@@ -623,7 +622,7 @@ module.exports = {
         if (interaction.user.id !== userId) {
             await interaction.followUp({
                 content: '❌ Only the command initiator can select a guild.',
-                ephemeral: true
+                flags: 64
             });
             return true;
         }
@@ -641,16 +640,19 @@ module.exports = {
             components: [] 
         });
 
-        let apiMembers = [];
+        let guildMembers = [];
         try {
-            let apiUrl = process.env.listguilds_endpoint;
+            let apiUrl = process.env.listguilds_endpoint || `${process.env.GUILD_API_ENDPOINT}?action=list_members`;
             if (apiUrl.includes('limit=')) {
                 apiUrl = apiUrl.replace(/limit=\d+/, 'limit=10000');
             } else {
-                apiUrl += '&limit=10000';
+                apiUrl += (apiUrl.includes('?') ? '&' : '?') + 'limit=10000';
             }
 
             const response = await axios.get(apiUrl, {
+                params: {
+                    guild_id: selectedId
+                },
                 headers: {
                     'Authorization': `Bearer ${process.env.BEARER_TOKEN}`,
                     'Content-Type': 'application/json',
@@ -660,11 +662,13 @@ module.exports = {
             });
 
             if (Array.isArray(response.data)) {
-                apiMembers = response.data;
+                guildMembers = response.data;
             } else if (response.data.data && Array.isArray(response.data.data)) {
-                apiMembers = response.data.data;
+                guildMembers = response.data.data;
+            } else if (response.data.members && Array.isArray(response.data.members)) {
+                guildMembers = response.data.members;
             } else if (response.data.items && Array.isArray(response.data.items)) {
-                apiMembers = response.data.items;
+                guildMembers = response.data.items;
             } else {
                 return interaction.editReply({ content: '❌ Unexpected API response format.' });
             }
@@ -672,8 +676,8 @@ module.exports = {
             return interaction.editReply({ content: `❌ Failed to fetch members: ${error.message}` });
         }
 
-        // Filter API members to only include those in the selected guild
-        const guildMembers = apiMembers.filter(m => {
+        // Make sure to filter strictly to the selected guild just in case the API ignores the parameter
+        guildMembers = guildMembers.filter(m => {
             const mGuildId = m.guild_ffmax_id || m.ffmax_guild_id || m.guild_id;
             const mGuildName = m.guild || m.guild_name;
             return String(mGuildId) === selectedId || (mGuildName === guildName && !mGuildId);
@@ -783,43 +787,120 @@ module.exports = {
         // Cleanup for specific guild: remove role from anyone who has it but isn't in guildMembers
         try {
             const validGuildMemberDiscordIds = new Set(guildMembers.map(m => String(m.discord_id || m.discordId)).filter(Boolean));
-            const allApiDiscordIds = new Set(apiMembers.map(m => String(m.discord_id || m.discordId)).filter(Boolean));
             
             const targetGuildEntry = roleLinks.find(g => String(g.guildId || g.ffmax_guild_id) === String(selectedId));
-
-            // Precompute role sharing to prevent removing shared roles like "Hawk Eye ⭐" from members of other guilds
-            const roleUsageCount = {};
-            roleLinks.forEach(g => {
-                g.roles.forEach(r => {
-                    roleUsageCount[r.role_id] = (roleUsageCount[r.role_id] || 0) + 1;
-                });
-            });
             
             const usersCleanedInGuild = new Set();
             
             if (targetGuildEntry) {
+                // Optimization: if there's any shared role, fetch all members once to cross-reference
+                const hasSharedRoles = targetGuildEntry.roles.some(roleObj => 
+                    roleLinks.some(g => String(g.guildId || g.ffmax_guild_id) !== String(selectedId) && g.roles.some(r => r.role_id === roleObj.role_id))
+                );
+                
+                let allApiMembersForCleanup = null;
+                if (hasSharedRoles) {
+                    try {
+                        let apiUrl = process.env.listguilds_endpoint || `${process.env.GUILD_API_ENDPOINT}?action=list_members`;
+                        if (apiUrl.includes('limit=')) {
+                            apiUrl = apiUrl.replace(/limit=\d+/, 'limit=10000');
+                        } else {
+                            apiUrl += (apiUrl.includes('?') ? '&' : '?') + 'limit=10000';
+                        }
+                        const response = await axios.get(apiUrl, {
+                            headers: {
+                                'Authorization': `Bearer ${process.env.BEARER_TOKEN}`,
+                                'Content-Type': 'application/json',
+                                'Accept': 'application/json'
+                            },
+                            timeout: 15000
+                        });
+                        
+                        if (Array.isArray(response.data)) {
+                            allApiMembersForCleanup = response.data;
+                        } else if (response.data.data && Array.isArray(response.data.data)) {
+                            allApiMembersForCleanup = response.data.data;
+                        } else if (response.data.items && Array.isArray(response.data.items)) {
+                            allApiMembersForCleanup = response.data.items;
+                        } else if (response.data.members && Array.isArray(response.data.members)) {
+                            allApiMembersForCleanup = response.data.members;
+                        }
+                    } catch (err) {
+                        console.error("[rolecheck] Failed to fetch all members for cleanup phase:", err.message);
+                    }
+                }
+
                 await interaction.guild.members.fetch();
                 for (const roleObj of targetGuildEntry.roles) {
                     const roleId = roleObj.role_id;
-                    const isShared = roleUsageCount[roleId] > 1;
                     const role = interaction.guild.roles.cache.get(roleId);
                     
+                    const isSharedRole = roleLinks.some(g => 
+                        String(g.guildId || g.ffmax_guild_id) !== String(selectedId) && 
+                        g.roles.some(r => r.role_id === roleId)
+                    );
+
                     if (role) {
                         for (const [memberId, member] of role.members) {
-                            // If shared role, only remove if they are not in ANY guild
-                            // If unique role, remove if they are not in THIS guild
-                            const shouldRemove = isShared ? !allApiDiscordIds.has(String(memberId)) : !validGuildMemberDiscordIds.has(String(memberId));
-                            
-                            if (shouldRemove) {
-                                try {
-                                    await member.roles.remove(roleId);
-                                    guildUpdated++;
-                                    if (!usersCleanedInGuild.has(memberId)) {
-                                        unsyncedMembers.push({ name: member.user.username, id: memberId, reason: "Stale role removed (left guild)" });
-                                        usersCleanedInGuild.add(memberId);
+                            // Only act if they are not in THIS specific guild
+                            if (!validGuildMemberDiscordIds.has(String(memberId))) {
+                                let shouldRemove = true;
+
+                                if (isSharedRole) {
+                                    // Check if the member has ANY role from ANOTHER linked guild (excluding the shared roles)
+                                    const tiedToOtherGuildViaDiscordRole = roleLinks.some(g => {
+                                        if (String(g.guildId || g.ffmax_guild_id) === String(selectedId)) return false;
+                                        
+                                        return g.roles.some(r => {
+                                            // Ensure this role is specific to the OTHER guild (not present in the guild we are syncing)
+                                            if (targetGuildEntry.roles.some(tgr => tgr.role_id === r.role_id)) return false;
+                                            return member.roles.cache.has(r.role_id);
+                                        });
+                                    });
+
+                                    if (tiedToOtherGuildViaDiscordRole) {
+                                        // They have another guild's specific role, so they belong to that guild. Keep the shared role!
+                                        shouldRemove = false;
+                                    } else {
+                                        if (allApiMembersForCleanup) {
+                                            // Find user in all members
+                                            const apiUser = allApiMembersForCleanup.find(m => String(m.discord_id || m.discordId) === String(memberId));
+                                            if (apiUser) {
+                                                let userGuildId = apiUser.guild_ffmax_id || apiUser.ffmax_guild_id;
+                                                if (!userGuildId && apiUser.guild_id) {
+                                                    const guildRef = allGuilds && allGuilds.find(g => String(g.id) === String(apiUser.guild_id));
+                                                    if (guildRef) {
+                                                        userGuildId = guildRef.ffmax_guild_id || guildRef.guildId || guildRef.id;
+                                                    }
+                                                }
+                                                if (!userGuildId) {
+                                                    userGuildId = apiUser.guild_id;
+                                                }
+                                                
+                                                const grantsRole = roleLinks.some(g => String(g.guildId || g.ffmax_guild_id) === String(userGuildId) && g.roles.some(r => r.role_id === roleId));
+                                                if (grantsRole) {
+                                                    // User legitimately has this role from another linked guild!
+                                                    shouldRemove = false;
+                                                }
+                                            }
+                                        } else {
+                                            // Fallback if bulk fetch failed... skip removal to avoid unjustly stripping shared roles
+                                            shouldRemove = false;
+                                        }
                                     }
-                                } catch (e) {
-                                    guildErrors++;
+                                }
+
+                                if (shouldRemove) {
+                                    try {
+                                        await member.roles.remove(roleId);
+                                        guildUpdated++;
+                                        if (!usersCleanedInGuild.has(memberId)) {
+                                            unsyncedMembers.push({ name: member.user.username, id: memberId, reason: "Stale role removed (not in guild)" });
+                                            usersCleanedInGuild.add(memberId);
+                                        }
+                                    } catch (e) {
+                                        guildErrors++;
+                                    }
                                 }
                             }
                         }

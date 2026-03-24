@@ -32,11 +32,12 @@ module.exports = {
                 .setDescription('List all bot commanders')),
 
     async execute(interaction) {
-        const owners = (process.env.BOT_OWNER || '').split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
+        // Check if the user is the bot owner
+        const owners = (process.env.BOT_OWNER || '').split(',').map(id => id.trim()).filter(Boolean);
         if (!owners.includes(interaction.user.id)) {
             return interaction.reply({ 
                 content: '❌ This command can only be used by the bot owner.', 
-                ephemeral: true 
+                flags: 64 
             });
         }
 
@@ -61,7 +62,7 @@ module.exports = {
                     if (commanders.includes(user.id)) {
                         return interaction.reply({ 
                             content: `❌ <@${user.id}> is already a bot commander.`,
-                            ephemeral: true
+                            flags: 64
                         });
                     }
 
@@ -71,7 +72,7 @@ module.exports = {
                     
                     return interaction.reply({
                         content: `✅ Successfully added <@${user.id}> as a bot commander.`,
-                        ephemeral: true
+                        flags: 64
                     });
                 }
 
@@ -85,7 +86,7 @@ module.exports = {
                     if (index === -1) {
                         return interaction.reply({
                             content: `❌ User with ID ${cleanUserId} is not a bot commander.`,
-                            ephemeral: true
+                            flags: 64
                         });
                     }
 
@@ -94,7 +95,7 @@ module.exports = {
                     
                     return interaction.reply({
                         content: `✅ Successfully removed <@${cleanUserId}> from bot commanders.`,
-                        ephemeral: true
+                        flags: 64
                     });
                 }
 
@@ -102,7 +103,7 @@ module.exports = {
                     if (commanders.length === 0) {
                         return interaction.reply({
                             content: 'There are no bot commanders set up yet.',
-                            ephemeral: true
+                            flags: 64
                         });
                     }
 
@@ -121,7 +122,7 @@ module.exports = {
             console.error('Error in botcommander command:', error);
             return interaction.reply({
                 content: '❌ An error occurred while processing your request.',
-                ephemeral: true
+                flags: 64
             });
         }
     },

@@ -136,10 +136,10 @@ module.exports = {
                                 },
                                 timeout: 10000
                             });
-                            
+
                             const items = infoResponse.data?.items || infoResponse.data?.data || infoResponse.data || [];
                             const fullGuildInfo = (Array.isArray(items) ? items : []).find(g => String(g.ffmax_guild_id || g.guild_id || g.id) === String(selectedGuildId));
-                            
+
                             if (fullGuildInfo) {
                                 guildImage = fullGuildInfo.icon || fullGuildInfo.image_url || fullGuildInfo.image || fullGuildInfo.logo || null;
                             }
@@ -171,7 +171,7 @@ module.exports = {
 
             collector.on('end', collected => {
                 if (collected.size === 0) {
-                    interaction.followUp({ content: 'Guild selection timed out.', ephemeral: true });
+                    interaction.followUp({ content: 'Guild selection timed out.', flags: 64 });
                 }
             });
 
@@ -358,7 +358,7 @@ module.exports = {
                 for (const [role, members] of Object.entries(membersByRole)) {
                     if (members.length === 0) continue;
 
-                    let roleMembers = members.map(m => `${m.ign} - <@${m.id}>`).join('\n');
+                    let roleMembers = members.map(m => `• <@${m.id}> | ${m.ign}`).join('\n');
 
                     // Add role header and members in one field
                     embed.addFields({
@@ -438,9 +438,15 @@ module.exports = {
                             )]
                         });
                     } catch (error) {
-                        console.error('Error handling pagination:', error);
-                        if (!i.replied) {
-                            await i.reply({ content: 'An error occurred while changing pages.', ephemeral: true });
+                        if (error.code !== 10062) {
+                            console.error('Error handling pagination:', error);
+                            if (!i.replied && !i.deferred) {
+                                try {
+                                    await i.reply({ content: 'An error occurred while changing pages.', flags: 64 });
+                                } catch (e) {
+                                    console.error('Failed to reply to failed interaction:', e.message);
+                                }
+                            }
                         }
                     }
                 });

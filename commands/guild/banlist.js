@@ -13,7 +13,7 @@ module.exports = {
         .setDescription('Shows a list of all blacklisted/banned members'),
 
     async execute(interaction) {
-        await interaction.deferReply({ flags: 0 }); // Visible to everyone or change to { ephemeral: true } to hide
+        await interaction.deferReply({ flags: 0 }); // Visible to everyone or change to { flags: 64 } to hide
 
         try {
 
@@ -153,7 +153,7 @@ module.exports = {
                     } catch (error) {
                         console.error('Error handling banlist pagination:', error);
                         if (!i.replied) {
-                            await i.reply({ content: 'An error occurred while changing pages.', ephemeral: true });
+                            await i.reply({ content: 'An error occurred while changing pages.', flags: 64 });
                         }
                     }
                 });

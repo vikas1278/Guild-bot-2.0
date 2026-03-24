@@ -243,7 +243,7 @@ module.exports = {
                             .setTimestamp()
                             .setFooter({ text: 'Ban Information' });
 
-                        await i.reply({ embeds: [banEmbed], ephemeral: true });
+                        await i.reply({ embeds: [banEmbed], flags: 64 });
                     } else if (i.customId === 'show_warnings' && userData.warnings?.length > 0) {
                         // Create warning details string
                         const warningDetails = userData.warnings
@@ -270,7 +270,7 @@ module.exports = {
                             .setTimestamp()
 
 
-                        await i.reply({ embeds: [warningEmbed], ephemeral: true });
+                        await i.reply({ embeds: [warningEmbed], flags: 64 });
                     }
                 });
 

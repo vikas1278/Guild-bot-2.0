@@ -63,11 +63,10 @@ async function isBotCommander(userId) {
     try {
         const data = await fs.readFile(path.join(__dirname, '../../commanderdb.json'), 'utf-8');
         const { commanders } = JSON.parse(data);
-        const owners = (process.env.BOT_OWNER || '').split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
+        const owners = (process.env.BOT_OWNER || '').split(',').map(id => id.trim()).filter(Boolean);
         return commanders.includes(userId) || owners.includes(userId);
     } catch (error) {
-        const owners = (process.env.BOT_OWNER || '').split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
-        return owners.includes(userId);
+        return false;
     }
 }
 
@@ -78,7 +77,7 @@ module.exports = {
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
     async execute(interaction) {
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: 64 });
 
         const isCommander = await isBotCommander(interaction.user.id);
         if (!isCommander) {
@@ -150,14 +149,14 @@ module.exports = {
         const { userId, roleLinks, apiGuilds } = interaction.client.tempRemoveData || {};
 
         if (interaction.user.id !== userId) {
-            await interaction.followUp({ content: '❌ Only the command initiator can select a guild.', ephemeral: true });
+            await interaction.followUp({ content: '❌ Only the command initiator can select a guild.', flags: 64 });
             return;
         }
 
         const selectedIndex = parseInt(interaction.values[0], 10);
 
         if (isNaN(selectedIndex) || selectedIndex < 0 || selectedIndex >= roleLinks.length) {
-            await interaction.followUp({ content: '❌ Invalid selection.', ephemeral: true });
+            await interaction.followUp({ content: '❌ Invalid selection.', flags: 64 });
             return;
         }
 
@@ -187,7 +186,7 @@ module.exports = {
                 components: []
             });
         } catch (error) {
-            await interaction.followUp({ content: '❌ Failed to save changes.', ephemeral: true });
+            await interaction.followUp({ content: '❌ Failed to save changes.', flags: 64 });
         }
 
         delete interaction.client.tempRemoveData;
