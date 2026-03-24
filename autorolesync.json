@@ -1,8 +1,8 @@
 {
-  "last_sync_time": "2026-03-16T00:39:49.000Z",
-  "last_run": "2026-03-16T11:32:24.564Z",
   "auto_sync_enabled": true,
-  "interval": "1m",
+  "interval": "2m",
+  "guild_id": "533945203644432385",
   "log_channel_id": "843468616245837824",
-  "guild_id": "533945203644432385"
+  "last_sync_time": "2026-03-23T16:25:16.000Z",
+  "last_run": "2026-03-24T03:01:30.124Z"
 }

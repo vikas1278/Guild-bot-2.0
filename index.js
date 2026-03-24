@@ -124,9 +124,17 @@ client.on(Events.InteractionCreate, async interaction => {
         } catch (error) {
             console.error(error);
             if (interaction.replied || interaction.deferred) {
-                await interaction.followUp({ content: 'There was an error while executing this command!', ephemeral: true });
+                try {
+                    await interaction.followUp({ content: 'There was an error while executing this command!', flags: 64 });
+                } catch (e) {
+                    console.error('Failed to send error followUp:', e.message);
+                }
             } else {
-                await interaction.reply({ content: 'There was an error while executing this command!', ephemeral: true });
+                try {
+                    await interaction.reply({ content: 'There was an error while executing this command!', flags: 64 });
+                } catch (e) {
+                    console.error('Failed to send error reply:', e.message);
+                }
             }
         }
         return;
@@ -142,7 +150,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 } catch (error) {
                     console.error('Error handling guild select:', error);
                     if (!interaction.replied && !interaction.deferred) {
-                        await interaction.reply({ content: 'An error occurred while processing your selection.', ephemeral: true });
+                        await interaction.reply({ content: 'An error occurred while processing your selection.', flags: 64 });
                     }
                 }
             }
@@ -154,7 +162,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 } catch (error) {
                     console.error('Error handling ranklink guild select:', error);
                     if (!interaction.replied && !interaction.deferred) {
-                        await interaction.reply({ content: 'An error occurred while processing your selection.', ephemeral: true });
+                        await interaction.reply({ content: 'An error occurred while processing your selection.', flags: 64 });
                     }
                 }
             }
@@ -166,7 +174,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 } catch (error) {
                     console.error('Error handling bind guild select:', error);
                     if (!interaction.replied && !interaction.deferred) {
-                        await interaction.reply({ content: 'An error occurred while processing your selection.', ephemeral: true });
+                        await interaction.reply({ content: 'An error occurred while processing your selection.', flags: 64 });
                     }
                 }
             }
@@ -178,7 +186,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 } catch (error) {
                     console.error('Error handling rolelinkremove select:', error);
                     if (!interaction.replied && !interaction.deferred) {
-                        await interaction.reply({ content: 'An error occurred while processing your selection.', ephemeral: true });
+                        await interaction.reply({ content: 'An error occurred while processing your selection.', flags: 64 });
                     }
                 }
             }
@@ -190,7 +198,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 } catch (error) {
                     console.error('Error handling rolecheck guild select:', error);
                     if (!interaction.replied && !interaction.deferred) {
-                        await interaction.reply({ content: 'An error occurred while processing your selection.', ephemeral: true });
+                        await interaction.reply({ content: 'An error occurred while processing your selection.', flags: 64 });
                     }
                 }
             }

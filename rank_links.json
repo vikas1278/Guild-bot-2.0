@@ -13,5 +13,10 @@
     "rank_name": "leader",
     "role_id": "547377451085332510",
     "name": "Leaders ★"
+  },
+  {
+    "rank_name": "blacklist",
+    "role_id": "1035084547525718036",
+    "name": "🚫"
   }
 ]
