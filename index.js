@@ -217,6 +217,14 @@ client.on(Events.InteractionCreate, async interaction => {
     }
 });
 
+// Minimal HTTP server for Render web service health checks
+const http = require('node:http');
+const port = process.env.PORT || 3000;
+http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('OK');
+}).listen(port, () => console.log(`HTTP server listening on port ${port}`));
+
 // Login to Discord
 if (!process.env.DISCORD_TOKEN) {
     console.error('❌ ERROR: DISCORD_TOKEN is not set in .env file');
