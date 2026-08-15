@@ -191,12 +191,9 @@ module.exports = {
 
     async showGuildMembers(interaction, guildId, guildName, row, guildImage) {
         try {
-            console.log(`Fetching members for guild: ${guildName} (${guildId})`);
             // Use the listguilds_endpoint from .env or fallback to the default endpoint
             let apiUrl = process.env.listguilds_endpoint ||
                 `${process.env.GUILD_API_ENDPOINT}?action=list_members`;
-
-            console.log(`Using API endpoint: ${apiUrl} for guild ID: ${guildId}`);
 
             // Override limit if present in URL
             if (apiUrl.includes('limit=')) {
@@ -204,8 +201,6 @@ module.exports = {
             } else {
                 apiUrl += (apiUrl.includes('?') ? '&' : '?') + 'limit=10000';
             }
-            console.log(`Adjusted API URL: ${apiUrl}`);
-
             // Ensure we have a valid interaction
             if (!interaction || !interaction.editReply) {
                 console.error('Invalid interaction object in showGuildMembers');
@@ -227,7 +222,6 @@ module.exports = {
             });
 
             const data = response.data;
-            console.log('API Response:', JSON.stringify(data, null, 2));
 
             // Process the API response to extract member details
             let members = [];
@@ -257,8 +251,6 @@ module.exports = {
                 ...member
             }));
 
-            console.log(`Found ${members.length} members for guild ${guildName}`);
-
             // Filter members by the selected guild ID
             // The API response might return all members if filtering isn't strict server-side
             const filteredMembers = members.filter(member => {
@@ -266,8 +258,6 @@ module.exports = {
                 // Convert both to string for comparison to be safe
                 return String(memberGuildId) === String(guildId);
             });
-
-            console.log(`Filtered to ${filteredMembers.length} members for guild ID ${guildId}`);
 
             if (!filteredMembers || filteredMembers.length === 0) {
                 const noMembersEmbed = new EmbedBuilder()

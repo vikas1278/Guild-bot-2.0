@@ -19,7 +19,6 @@ async function getRoleLinks() {
 async function fetchGuilds() {
     try {
         const baseUrl = GUILD_API_ENDPOINT.split('?')[0];
-        console.log(`[rolelink] Fetching guilds from: ${baseUrl}`);
 
         const response = await axios.get(baseUrl, {
             params: {
@@ -34,9 +33,6 @@ async function fetchGuilds() {
             validateStatus: status => status < 500
         });
 
-        console.log(`[rolelink] API Response Status: ${response.status}`);
-        console.log('[rolelink] Response Data:', JSON.stringify(response.data, null, 2));
-
         // Handle different response formats
         if (response.data && response.data.items && Array.isArray(response.data.items)) {
             return response.data.items;
@@ -50,15 +46,6 @@ async function fetchGuilds() {
         return [];
     } catch (error) {
         console.error('[rolelink] Error fetching guilds:', error.message);
-        if (error.response) {
-            console.error('[rolelink] Error response data:', error.response.data);
-            console.error('[rolelink] Error response status:', error.response.status);
-            console.error('[rolelink] Error response headers:', error.response.headers);
-        } else if (error.request) {
-            console.error('[rolelink] No response received:', error.request);
-        } else {
-            console.error('[rolelink] Error setting up request:', error.message);
-        }
         return [];
     }
 }
@@ -72,7 +59,6 @@ async function saveRoleLinks(links) {
         // Write the file with proper error handling
         const jsonString = '[\n' + links.map(link => '  ' + JSON.stringify(link)).join(',\n') + '\n]';
         await fs.writeFile(ROLE_LINKS_PATH, jsonString, 'utf-8');
-        console.log(`[rolelink] Successfully saved ${links.length} guild entries to ${ROLE_LINKS_PATH}`);
         return true;
     } catch (error) {
         console.error('[rolelink] Error saving role links:', error);

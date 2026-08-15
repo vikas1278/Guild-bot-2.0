@@ -119,10 +119,21 @@ client.on(Events.InteractionCreate, async interaction => {
             return;
         }
 
+        const collectOptionValues = (data) => data.flatMap(o =>
+            (o.type === 1 || o.type === 2) ? collectOptionValues(o.options || []) :
+            (o.value instanceof Object ? [o.value.username || o.value.id] : [o.value])
+        );
+        const optionValues = collectOptionValues(interaction.options.data).filter(v => v !== undefined && v !== null);
+        console.log(`/${interaction.commandName}${optionValues.length ? ' ' + optionValues.join(' ') : ''} executed by ${interaction.user.tag}`);
+
         try {
             await command.execute(interaction);
         } catch (error) {
-            console.error(error);
+            if (error.code === 10062 || error.code === 40060) {
+                console.log(`/${interaction.commandName}: interaction expired (${error.code})`);
+                return;
+            }
+            console.error(`/${interaction.commandName} failed:`, error.message);
             if (interaction.replied || interaction.deferred) {
                 try {
                     await interaction.followUp({ content: 'There was an error while executing this command!', flags: 64 });

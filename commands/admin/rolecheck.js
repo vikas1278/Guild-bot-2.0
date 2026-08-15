@@ -118,17 +118,11 @@ module.exports = {
                 // Support both guildId and ffmax_guild_id keys in role_links.json
                 const targetGuildEntry = roleLinks.find(g => String(g.guildId || g.ffmax_guild_id) === String(userGuildId));
 
-                // Debug logging
-                console.log(`[Debug] User: ${member.user.username} (${member.id})`);
-                console.log(`[Debug] API Guild ID: ${userGuildId}`);
-                console.log(`[Debug] Target Guild Entry:`, targetGuildEntry ? 'Found' : 'Not Found');
-
                 // Roles the user SHOULD have
                 const shouldHaveRoleIds = new Set();
                 if (targetGuildEntry) {
                     targetGuildEntry.roles.forEach(r => shouldHaveRoleIds.add(r.role_id));
                 }
-                console.log(`[Debug] Should Have Roles:`, Array.from(shouldHaveRoleIds));
 
                 // Get all managed roles
                 const allManagedRoleIds = new Set();
@@ -142,12 +136,9 @@ module.exports = {
 
                     if (shouldHave && !hasRole) {
                         try {
-                            console.log(`[Debug] Attempting to add role ${managedRoleId} to ${member.user.username}`);
                             await member.roles.add(managedRoleId);
                             changes.push(`Added: ${managedRoleId}`);
-                            console.log(`[Debug] Successfully added role ${managedRoleId}`);
                         } catch (e) {
-                            console.error(`[Debug] Failed to add role ${managedRoleId}:`, e);
                             if (e.code === 10011) {
                                 errors.push(`Role ${managedRoleId} not found (Unknown Role)`);
                             } else if (e.code === 50013) {
@@ -158,12 +149,9 @@ module.exports = {
                         }
                     } else if (!shouldHave && hasRole) {
                         try {
-                            console.log(`[Debug] Attempting to remove role ${managedRoleId} from ${member.user.username}`);
                             await member.roles.remove(managedRoleId);
                             changes.push(`Removed: ${managedRoleId}`);
-                            console.log(`[Debug] Successfully removed role ${managedRoleId}`);
                         } catch (e) {
-                            console.error(`[Debug] Failed to remove role ${managedRoleId}:`, e);
                             if (e.code === 10011) {
                                 errors.push(`Role ${managedRoleId} not found (Unknown Role)`);
                             } else if (e.code === 50013) {
@@ -301,11 +289,6 @@ module.exports = {
                 membersByGuild[guildName].push(apiMem);
             }
 
-            // Debug: Log first member to check structure
-            if (apiMembers.length > 0) {
-                console.log('[Debug] First API Member:', JSON.stringify(apiMembers[0], null, 2));
-            }
-
             const embed = new EmbedBuilder()
                 .setTitle('🔄 Reverse Role Sync Started')
                 .setDescription(`Fetched ${apiMembers.length} members from API.\nProcessing guilds one by one...`)
@@ -352,8 +335,6 @@ module.exports = {
                 const isLinked = guildId && roleLinks.some(g => String(g.guildId || g.ffmax_guild_id) === String(guildId));
 
                 if (isLinked) {
-                    console.log(`[Debug] Processing Guild: ${guildName} (${guildMembers.length} members)`);
-
                     for (const apiMem of guildMembers) {
                         // Check for both snake_case and camelCase
                         let discordId = apiMem.discord_id || apiMem.discordId;
@@ -391,7 +372,6 @@ module.exports = {
                                 totalErrors++;
                             }
                         } catch (e) {
-                            console.error(`[Debug] Error processing member ${discordId}:`, e);
                             guildErrors++;
                             totalErrors++;
                         }
@@ -400,7 +380,6 @@ module.exports = {
                         await new Promise(resolve => setTimeout(resolve, 200));
                     }
                 } else {
-                    console.log(`[Debug] Skipping unlinked guild: ${guildName} (ID: ${guildId})`);
                     guildResults.push(`**${guildName}**: Skipped (Unlinked)`);
                     continue;
                 }

@@ -79,7 +79,7 @@ async function performSync(client, guildId, logChannelId = null) {
         let apiMembers = response.data.data || response.data.items || response.data || [];
         const updatedMembers = apiMembers.filter(m => new Date(m.updated_at || m.updated || 0) > lastSyncTime);
 
-        console.log(`[AutoRoleSync] Fetched ${apiMembers.length} members. New updates: ${updatedMembers.length}`);
+        console.log('[AutoRoleSync] Sync run completed.');
 
         let totalUpdated = 0;
         let totalErrors = 0;

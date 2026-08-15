@@ -127,14 +127,12 @@ module.exports = {
             return interaction.editReply({ embeds: [embed] });
 
         } catch (error) {
-            console.error('[listguilds] Error:', error);
+            console.error('[listguilds] Error:', error.message);
             let errorMessage = '❌ Error fetching guild list';
 
             if (error.response) {
                 // Handle HTTP errors
                 const { status, statusText, data } = error.response;
-                console.error(`[listguilds] API Error - Status: ${status} ${statusText}`);
-                console.error('[listguilds] Error Response:', data);
 
                 errorMessage += `\n**Status:** ${status} ${statusText}`;
 
@@ -155,7 +153,6 @@ module.exports = {
                 }
             } else if (error.request) {
                 // The request was made but no response was received
-                console.error('[listguilds] No response received:', error.request);
                 errorMessage += '\n\n🔌 No response received from the server. Please check:';
                 errorMessage += '\n1. The API server is running';
                 errorMessage += '\n2. The API endpoint URL is correct';
@@ -164,7 +161,6 @@ module.exports = {
                 errorMessage += '\n\n⏱️ Request timed out. The server took too long to respond.';
             } else {
                 // Something happened in setting up the request
-                console.error('[listguilds] Request setup error:', error);
                 errorMessage += `\n\n${error.message}`;
             }
 

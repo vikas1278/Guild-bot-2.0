@@ -85,16 +85,6 @@ module.exports = {
                 row.addComponents(blacklistButton);
             }
 
-            // Log basic info for debugging (commented out for production)
-            // Debug: Log the response
-            console.log('Full API Response:', JSON.stringify(response.data, null, 2));
-            console.log('userData object:', JSON.stringify(userData, null, 2));
-            console.log('Mongo ID:', userData.mongo_id);
-            console.log('Status value:', userData.status);
-            console.log('Updated_at value:', userData.updated_at);
-
-            console.log('User data loaded for:', userData.username || 'Unknown user');
-
             // If searching by UID and we have discord_id, try to get Discord user info
             if (searchUid && userData.discord_id) {
                 try {

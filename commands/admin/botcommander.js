@@ -51,7 +51,6 @@ module.exports = {
                 commanders = JSON.parse(data).commanders || [];
             } catch (error) {
                 // File doesn't exist or is invalid, will be created on save
-                console.log('No existing commander database found, creating a new one.');
             }
 
             switch (subcommand) {
