@@ -7,10 +7,8 @@ const path = require('node:path');
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildMembers
-    ]
+        GatewayIntentBits.GuildMembers,
+    ],
 });
 
 // Command handling
@@ -235,5 +233,10 @@ client.login(process.env.DISCORD_TOKEN)
     .then(() => console.log('✅ Bot is now connected to Discord!'))
     .catch(error => {
         console.error('❌ Failed to log in to Discord:', error);
+        if (String(error.message).includes('disallowed intents')) {
+            console.error(
+                'Enable **Server Members Intent** for this bot: Discord Developer Portal → your app → Bot → Privileged Gateway Intents → turn on "Server Members Intent", then restart the bot.',
+            );
+        }
         process.exit(1);
     });

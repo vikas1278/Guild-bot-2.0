@@ -47,7 +47,11 @@ A powerful Discord bot for managing Free Fire / Free Fire MAX guilds, viewing us
    autosync_endpoint=https://your-api-domain.com/api/user-management.php?action=list_members&limit=55&offset=0&sort=updated_desc
    ```
 
-4. **Deploy slash commands**
+4. **Enable privileged intents (required)**
+
+   In the [Discord Developer Portal](https://discord.com/developers/applications), open your application → **Bot** → **Privileged Gateway Intents** and enable **Server Members Intent**. Role sync commands (`/rolecheck`, `/rankcheck`, `/autorolesync`, etc.) need it to fetch members and assign roles.
+
+5. **Deploy slash commands**
 
    Run this whenever you add or update commands:
    ```bash
@@ -56,7 +60,7 @@ A powerful Discord bot for managing Free Fire / Free Fire MAX guilds, viewing us
    node deploy-commands.js
    ```
 
-5. **Start the bot**
+6. **Start the bot**
    ```bash
    npm start
    # or
